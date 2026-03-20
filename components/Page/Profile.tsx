@@ -1,0 +1,462 @@
+
+import React, { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { api } from '../../services/supabaseClient';
+import { CurrentUser, Post, Profile as UserProfile } from '../../types';
+import { Avatar } from '../Core/Avatar';
+import { SquaresFour, ChatCircleText, CaretLeft, X, SignOut, Camera } from '@phosphor-icons/react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { theme, commonStyles } from '../../Theme';
+import { SlotCounter } from '../Core/SlotCounter';
+import { Loader } from '../Core/Loader';
+
+import { useAuth } from '../../contexts/AuthContext';
+
+export const Profile: React.FC = () => {
+  const { user: currentUser, setUser } = useAuth();
+  const { userId } = useParams<{ userId: string }>();
+  const navigate = useNavigate();
+  
+  const [profileUser, setProfileUser] = useState<UserProfile | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  
+  const [editName, setEditName] = useState('');
+  const [editBio, setEditBio] = useState('');
+  
+  // Avatar Upload State
+  const [editAvatar, setEditAvatar] = useState<File | null>(null);
+  const [previewAvatar, setPreviewAvatar] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let mounted = true;
+    let profileTimeout: any;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        
+        // 5s safety timeout
+        profileTimeout = setTimeout(() => {
+          if (mounted) {
+            console.warn('Profile: Data loading timed out');
+            setLoading(false);
+          }
+        }, 5000);
+
+        const targetId = userId || currentUser.id;
+        
+        const [fetchedProfile, fetchedPosts] = await Promise.all([
+          api.getUserProfile(targetId),
+          api.getUserPosts(targetId)
+        ]);
+
+        if (mounted) {
+          setProfileUser(fetchedProfile);
+          setPosts(fetchedPosts);
+          
+          if (targetId === currentUser.id) {
+            setEditName(fetchedProfile.full_name || '');
+            setEditBio(fetchedProfile.bio || '');
+          }
+        }
+
+      } catch (e) {
+        console.error('Profile: Error loading data:', e);
+      } finally {
+        if (mounted) setLoading(false);
+        if (profileTimeout) clearTimeout(profileTimeout);
+      }
+    };
+    loadData();
+
+    return () => {
+      mounted = false;
+      if (profileTimeout) clearTimeout(profileTimeout);
+    };
+  }, [userId, currentUser]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          setEditAvatar(file);
+          setPreviewAvatar(URL.createObjectURL(file));
+      }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!currentUser) return;
+    try {
+      let avatarUrl = currentUser.avatar_url;
+      
+      if (editAvatar) {
+         avatarUrl = await api.uploadFile(editAvatar);
+      }
+
+      const updatedUser = await api.updateCurrentUser({
+        full_name: editName,
+        bio: editBio,
+        avatar_url: avatarUrl
+      });
+      setProfileUser(updatedUser);
+      setUser(updatedUser);
+      setIsEditing(false);
+      
+      // Reset upload state
+      setEditAvatar(null);
+      setPreviewAvatar(null);
+    } catch (e) {
+      console.error("Failed to update profile", e);
+    }
+  };
+
+  const handleFollowToggle = async () => {
+    if (!currentUser || !profileUser) return;
+    const wasFollowing = profileUser.is_following;
+    
+    // Optimistic render
+    setProfileUser(prev => prev ? ({ 
+      ...prev, 
+      is_following: !wasFollowing, 
+      followers_count: (prev.followers_count || 0) + (wasFollowing ? -1 : 1) 
+    }) : null);
+
+    try {
+      if (wasFollowing) {
+        await api.unfollowUser(currentUser.id, profileUser.id);
+      } else {
+        await api.followUser(currentUser.id, profileUser.id, currentUser.username);
+      }
+    } catch (e) {
+      console.error(e);
+      // Revert optimistic render
+      setProfileUser(prev => prev ? ({ 
+        ...prev, 
+        is_following: wasFollowing, 
+        followers_count: (prev.followers_count || 0) + (wasFollowing ? 1 : -1) 
+      }) : null);
+    }
+  };
+
+  const handleMessage = () => {
+    if (profileUser) {
+      navigate(`/messages/${profileUser.id}`);
+    }
+  };
+
+  if (loading) {
+    return <Loader fullscreen label="FETCHING PROFILE" />;
+  }
+
+  if (!profileUser || !currentUser) return null;
+
+  const isMyProfile = profileUser.id === currentUser.id;
+
+  return (
+    // Removed motion page transitions from root to keep header static
+    <div 
+      style={commonStyles.pageContainer}
+    >
+      <div style={{ width: '100%', maxWidth: theme.layout.maxWidth, paddingBottom: '180px' }}>
+        
+        {/* Back Button */}
+        <div style={{ padding: '24px' }}>
+             <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: theme.colors.text1, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+               <CaretLeft size={20} /> Back
+             </button>
+        </div>
+
+        {/* Profile Header - Static without animations */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 24px 32px 24px' }}>
+            
+            <div>
+              <Avatar src={profileUser.avatar_url} alt={profileUser.username} size="xl" bordered style={{ width: '110px', height: '110px', marginBottom: '24px' }} />
+            </div>
+            
+            {/* Stats with Slot Counters */}
+            <div 
+              style={{ display: 'flex', gap: '40px', marginBottom: '32px' }}
+            >
+              <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ fontFamily: theme.fonts.display, fontSize: '24px', color: theme.colors.text1, display: 'flex', justifyContent: 'center' }}>
+                   <SlotCounter value={posts.length} fontSize="24px" />
+                </div>
+                <span style={{ fontSize: '11px', color: theme.colors.text3, textTransform: 'uppercase', letterSpacing: '1px' }}>Posts</span>
+              </div>
+              <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ fontFamily: theme.fonts.display, fontSize: '24px', color: theme.colors.text1, display: 'flex', justifyContent: 'center' }}>
+                    <SlotCounter value={profileUser.followers_count || 0} fontSize="24px" />
+                </div>
+                <span style={{ fontSize: '11px', color: theme.colors.text3, textTransform: 'uppercase', letterSpacing: '1px' }}>Followers</span>
+              </div>
+              <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ fontFamily: theme.fonts.display, fontSize: '24px', color: theme.colors.text1, display: 'flex', justifyContent: 'center' }}>
+                    <SlotCounter value={profileUser.following_count || 0} fontSize="24px" />
+                </div>
+                <span style={{ fontSize: '11px', color: theme.colors.text3, textTransform: 'uppercase', letterSpacing: '1px' }}>Following</span>
+              </div>
+            </div>
+
+            {/* User Info & Actions */}
+            <div style={{ width: '100%' }}>
+                <div 
+                  style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '24px' }}
+                >
+                  <div>
+                    <h1 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px', color: theme.colors.text1 }}>{profileUser.full_name || profileUser.username}</h1>
+                    <p style={{ 
+                      color: theme.colors.text2, 
+                      whiteSpace: 'pre-wrap', 
+                      fontSize: '15px', 
+                      lineHeight: 1.6, 
+                      fontFamily: theme.fonts.body, // Explicitly use Inter Body font for readability
+                      fontWeight: 400,
+                      maxWidth: '80%', 
+                      margin: '0 auto' 
+                    }}>
+                      {profileUser.bio || "Just floating in the void."}
+                    </p>
+                  </div>
+                  
+                  {isMyProfile ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <button 
+                        onClick={() => setIsEditing(true)}
+                        style={{ 
+                          width: '100%', 
+                          background: theme.colors.surface2, 
+                          border: `1px solid ${theme.colors.border}`, // Used border variable for better contrast
+                          color: theme.colors.text1, 
+                          padding: '12px', 
+                          borderRadius: theme.radius.full, 
+                          fontWeight: 600, 
+                          fontSize: '14px', 
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s' 
+                        }}
+                      >
+                        Edit Profile
+                      </button>
+                      
+                      <button 
+                        onClick={() => api.signOut()}
+                        style={{ 
+                          width: '100%', 
+                          background: 'transparent', 
+                          border: `1px solid ${theme.colors.danger}`, 
+                          color: theme.colors.danger, 
+                          padding: '12px', 
+                          borderRadius: theme.radius.full, 
+                          fontWeight: 600, 
+                          fontSize: '14px', 
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        <SignOut size={18} weight="bold" />
+                        Sign Out
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
+                      <button 
+                        onClick={handleFollowToggle}
+                        style={{ 
+                          padding: '12px 32px', borderRadius: theme.radius.full, fontWeight: 600, fontSize: '14px', 
+                          border: 'none', cursor: 'pointer',
+                          background: profileUser.is_following ? theme.colors.surface3 : theme.colors.accent,
+                          color: profileUser.is_following ? theme.colors.text1 : 'white'
+                        }}
+                      >
+                        {profileUser.is_following ? 'Following' : 'Follow'}
+                      </button>
+                      <button 
+                        onClick={handleMessage}
+                        style={{ background: theme.colors.surface2, border: `1px solid ${theme.colors.surface3}`, color: theme.colors.text1, padding: '12px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                      >
+                        <ChatCircleText weight="fill" size={20} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+            </div>
+        </div>
+
+        {/* Grid - Seamless No Divider */}
+        <div style={{ paddingTop: '0' }}>
+           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0' }}>
+             {posts.map((post, i) => (
+               <motion.div 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.05 }}
+                  key={post.id} 
+                  onClick={() => navigate(`/post/${post.id}`)}
+                  style={{ position: 'relative', aspectRatio: '1/1', cursor: 'pointer', overflow: 'hidden', backgroundColor: theme.colors.surface2 }}
+               >
+                 <motion.img 
+                   layoutId={`post-media-${post.id}`}
+                   src={post.image_url || 'https://picsum.photos/seed/placeholder/100/100'} 
+                   alt="User Post" 
+                   style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s' }} 
+                 />
+               </motion.div>
+             ))}
+           </div>
+           {posts.length === 0 && (
+             <div style={{ padding: '64px 0', textAlign: 'center', color: theme.colors.text3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                <SquaresFour size={32} weight="thin" />
+                <p style={{ fontSize: '14px' }}>Empty canvas.</p>
+             </div>
+           )}
+        </div>
+      </div>
+
+      {/* Edit Profile Overlay - Portaled to Body */}
+      {createPortal(
+        <AnimatePresence>
+          {isEditing && (
+             <>
+               {/* Backdrop */}
+               <motion.div
+                 initial={{ opacity: 0 }}
+                 animate={{ opacity: 1 }}
+                 exit={{ opacity: 0 }}
+                 onClick={() => setIsEditing(false)}
+                 style={{ 
+                   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', 
+                   backdropFilter: 'blur(8px)', zIndex: 2000 
+                 }}
+               />
+               {/* Modal */}
+               <motion.div
+                 initial={{ y: '100%', opacity: 0 }}
+                 animate={{ y: 0, opacity: 1 }}
+                 exit={{ y: '100%', opacity: 0 }}
+                 transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                 style={{ 
+                   position: 'fixed', bottom: 0, left: 0, right: 0, 
+                   background: theme.colors.surface2,
+                   color: theme.colors.text1,
+                   borderTopLeftRadius: theme.radius.xl,
+                   borderTopRightRadius: theme.radius.xl,
+                   padding: '24px 24px 48px 24px',
+                   zIndex: 2001,
+                   maxWidth: theme.layout.maxWidth,
+                   margin: '0 auto',
+                   // Subtle top separator only
+                   borderTop: `1px solid ${theme.colors.surface3}`
+                 }}
+               >
+                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                     <h3 style={{ fontSize: '18px', fontWeight: 600, color: theme.colors.text1 }}>Edit Profile</h3>
+                     <button onClick={() => setIsEditing(false)} style={{ background: 'none', border: 'none', color: theme.colors.text1 }}>
+                       <X size={24} />
+                     </button>
+                   </div>
+
+                   {/* Avatar Upload */}
+                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '32px' }}>
+                       <div 
+                         onClick={() => fileInputRef.current?.click()}
+                         style={{ position: 'relative', cursor: 'pointer', borderRadius: '50%' }}
+                       >
+                           <Avatar 
+                              src={previewAvatar || currentUser.avatar_url} 
+                              alt="preview" 
+                              size="xl" 
+                              style={{ width: '100px', height: '100px' }} 
+                           />
+                           <div style={{ 
+                               position: 'absolute', inset: 0, 
+                               background: 'rgba(0,0,0,0.4)', 
+                               borderRadius: '50%', 
+                               display: 'flex', alignItems: 'center', justifyContent: 'center',
+                               backdropFilter: 'blur(2px)'
+                           }}>
+                               <Camera size={28} color="white" weight="fill" />
+                           </div>
+                       </div>
+                       <input 
+                           type="file" 
+                           ref={fileInputRef} 
+                           onChange={handleFileSelect} 
+                           accept="image/*" 
+                           style={{ display: 'none' }} 
+                       />
+                       <button 
+                           onClick={() => fileInputRef.current?.click()}
+                           style={{ 
+                               background: 'none', border: 'none', 
+                               color: theme.colors.accent, fontSize: '13px', fontWeight: 600, 
+                               marginTop: '12px', cursor: 'pointer' 
+                           }}
+                       >
+                           Change Photo
+                       </button>
+                   </div>
+
+                   <div style={{ marginBottom: '24px' }}>
+                       <label style={{ fontSize: '11px', color: theme.colors.text2, textTransform: 'uppercase', fontWeight: 700, marginBottom: '8px', display: 'block' }}>Name</label>
+                       <input 
+                         type="text" 
+                         value={editName}
+                         onChange={(e) => setEditName(e.target.value)}
+                         style={{ 
+                            ...commonStyles.inputReset, 
+                            background: theme.colors.inputBg, 
+                            backdropFilter: 'blur(12px)',
+                            WebkitBackdropFilter: 'blur(12px)',
+                            border: `1px solid ${theme.colors.border}`, 
+                            borderRadius: theme.radius.md, 
+                            padding: '16px' 
+                          }}
+                       />
+                   </div>
+                   
+                   <div style={{ marginBottom: '32px' }}>
+                       <label style={{ fontSize: '11px', color: theme.colors.text2, textTransform: 'uppercase', fontWeight: 700, marginBottom: '8px', display: 'block' }}>Bio</label>
+                       <textarea 
+                         value={editBio}
+                         onChange={(e) => setEditBio(e.target.value)}
+                         style={{ 
+                            ...commonStyles.inputReset, 
+                            background: theme.colors.inputBg, 
+                            backdropFilter: 'blur(12px)',
+                            WebkitBackdropFilter: 'blur(12px)',
+                            border: `1px solid ${theme.colors.border}`, 
+                            borderRadius: theme.radius.md, 
+                            padding: '16px', 
+                            resize: 'none', 
+                            height: '100px' 
+                          }}
+                       />
+                   </div>
+
+                   <button 
+                     onClick={handleSaveProfile}
+                     style={{ 
+                       width: '100%', background: theme.colors.accent, color: 'white', 
+                       padding: '16px', borderRadius: theme.radius.full, border: 'none', 
+                       fontWeight: 600, cursor: 'pointer', fontSize: '16px' 
+                     }}
+                   >
+                     Save Changes
+                   </button>
+               </motion.div>
+             </>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+    </div>
+  );
+};

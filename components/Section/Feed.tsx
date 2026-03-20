@@ -1,0 +1,347 @@
+
+import React, { useEffect, useState, useRef } from 'react';
+import { PostCard } from '../Package/PostCard';
+import { api, supabase } from '../../services/supabaseClient';
+import { Post, CurrentUser } from '../../types';
+import { CircleNotch, Image as ImageIcon, PaperPlaneRight, Sun, Moon, Bell } from '@phosphor-icons/react';
+import { Avatar } from '../Core/Avatar';
+import { Button } from '../Core/Button';
+import { Loader } from '../Core/Loader';
+import { Link, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { DS } from '../../Theme';
+import { useTheme } from '../../ThemeContext';
+import { Confetti } from '../Core/Confetti';
+
+import { useAuth } from '../../contexts/AuthContext';
+import { useNotifications } from '../../contexts/NotificationContext';
+
+export const Feed: React.FC = () => {
+  const { user: currentUser } = useAuth();
+  const { unreadCount } = useNotifications();
+  const { mode, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Input State
+  const [caption, setCaption] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [isPosting, setIsPosting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Easter Egg State
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const pressTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    let feedTimeout: any;
+
+    const loadData = async () => {
+      try {
+        // 5s safety timeout for the feed itself
+        feedTimeout = setTimeout(() => {
+          if (mounted) {
+            console.warn('Feed: Data loading timed out');
+            setLoading(false);
+          }
+        }, 5000);
+
+        const feedData = await api.getFeed();
+        if (mounted) setPosts(feedData);
+      } catch (e) {
+        console.error('Feed: Error loading data:', e);
+      } finally {
+        if (mounted) setLoading(false);
+        if (feedTimeout) clearTimeout(feedTimeout);
+      }
+    };
+    loadData();
+    
+    return () => {
+        mounted = false;
+        if (pressTimer.current) clearTimeout(pressTimer.current);
+        if (feedTimeout) clearTimeout(feedTimeout);
+    };
+
+  }, [currentUser]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const f = e.target.files[0];
+      setFile(f);
+      setPreview(URL.createObjectURL(f));
+    }
+  };
+
+  const handlePost = async () => {
+    if (!currentUser) return;
+    if (!caption && !file) return;
+
+    setIsPosting(true);
+    try {
+      const fallbackImageUrl = `https://picsum.photos/seed/${Date.now()}/600/600`;
+      
+      const newPost: Post = {
+        id: `temp_${Date.now()}`,
+        user_id: currentUser.id,
+        image_url: preview || fallbackImageUrl,
+        caption: caption,
+        created_at: new Date().toISOString(),
+        profiles: currentUser,
+        likes_count: 0,
+        has_liked: false,
+        comments_count: 0
+      };
+      setPosts(prev => [newPost, ...prev]);
+
+      let imageUrl = '';
+      if (file) {
+         imageUrl = await api.uploadFile(file);
+      } else {
+         imageUrl = fallbackImageUrl; 
+      }
+
+      const realPost = await api.createPost(imageUrl, caption, currentUser.id, currentUser.username);
+      
+      setPosts(prev => prev.map(p => p.id === newPost.id ? realPost : p));
+      
+      setCaption('');
+      setFile(null);
+      setPreview(null);
+    } catch (e) {
+      console.error(e);
+      // Remove optimistic post on error
+      setPosts(prev => prev.filter(p => !p.id.startsWith('temp_')));
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  // Easter Egg Handlers
+  const handleLogoStart = (e: React.SyntheticEvent) => {
+    pressTimer.current = window.setTimeout(() => {
+        triggerEasterEgg();
+    }, 300);
+  };
+
+  const handleLogoEnd = () => {
+    if (pressTimer.current) {
+        clearTimeout(pressTimer.current);
+        pressTimer.current = null;
+    }
+  };
+
+  const triggerEasterEgg = () => {
+    if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
+    setShowConfetti(true);
+    setShowEasterEgg(true);
+  };
+
+  if (loading) {
+    return <Loader fullscreen label="INITIALIZING" />;
+  }
+
+  return (
+    <div style={{ 
+      background: DS.Color.Base.Surface[1], 
+      minHeight: '100vh', 
+      width: '100%',
+      display: 'flex', 
+      justifyContent: 'center' 
+    }}>
+      <div style={{ width: '100%', maxWidth: '500px', paddingBottom: '100px' }}>
+        
+        {/* Header */}
+        <header style={{ 
+          padding: '24px', 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+          background: DS.Color.Base.Surface[1], // Opaque for scroll
+        }}>
+           <div
+             onMouseDown={handleLogoStart}
+             onMouseUp={handleLogoEnd}
+             onMouseLeave={handleLogoEnd}
+             onTouchStart={handleLogoStart}
+             onTouchEnd={handleLogoEnd}
+             onContextMenu={(e) => e.preventDefault()}
+             style={{ cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none' }}
+           >
+             <h1 style={{ fontSize: '32px', color: DS.Color.Base.Content[1], ...DS.Type.Expressive.Display, pointerEvents: 'none' }}>
+               OURS<span style={{ color: DS.Color.Accent.Surface }}>.</span>
+             </h1>
+           </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+             {currentUser && (
+               <Button variant="ghost" size="icon" onClick={() => navigate('/activity')} style={{ position: 'relative' }}>
+                  <Bell size={24} />
+                  {unreadCount > 0 && (
+                      <span style={{ 
+                          position: 'absolute', top: 2, right: 2, 
+                          width: '8px', height: '8px', 
+                          background: DS.Color.Accent.Surface, 
+                          borderRadius: '50%',
+                          border: `1px solid ${DS.Color.Base.Surface[1]}`
+                      }} />
+                  )}
+               </Button>
+             )}
+             <Button variant="ghost" size="icon" onClick={toggleTheme}>
+               {mode === 'dark' ? <Moon size={20} /> : <Sun size={20} />}
+             </Button>
+             {currentUser ? (
+               <Link to={`/profile/${currentUser?.id}`}>
+                  <Avatar src={currentUser?.avatar_url || ''} alt="me" size="sm" />
+               </Link>
+             ) : (
+               <Button variant="primary" size="sm" onClick={() => navigate('/login')}>
+                 Login
+               </Button>
+             )}
+           </div>
+        </header>
+
+        {/* Input Area */}
+        {currentUser && (
+          <div style={{ padding: '0 16px 32px 16px' }}>
+            <motion.div 
+              layout
+              style={{ 
+                background: DS.Color.Base.Surface[2],
+                borderRadius: DS.Radius.Full, // Peel/Pill shape
+                padding: '8px 8px 8px 16px', 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                border: `1px solid ${DS.Color.Base.Border}`
+              }}
+            >
+              <input
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  placeholder="Share a moment..."
+                  style={{ 
+                    flex: 1, 
+                    background: 'transparent', 
+                    border: 'none', 
+                    outline: 'none', 
+                    color: DS.Color.Base.Content[1], 
+                    ...DS.Type.Readable.Body
+                  }}
+              />
+                
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    ref={fileInputRef} 
+                    style={{ display: 'none' }} 
+                    onChange={handleFileSelect}
+                  />
+                  
+                  <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()}>
+                    <ImageIcon size={20} weight={preview ? 'fill' : 'regular'} color={preview ? DS.Color.Accent.Surface : undefined} />
+                  </Button>
+  
+                  <Button 
+                    variant={caption || file ? "primary" : "secondary"} 
+                    size="icon"
+                    onClick={handlePost}
+                    disabled={(!caption && !file) || isPosting}
+                  >
+                    {isPosting ? <CircleNotch className="animate-spin" /> : <PaperPlaneRight size={18} weight="fill" />}
+                  </Button>
+              </div>
+            </motion.div>
+            
+            <AnimatePresence>
+               {preview && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                    animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
+                    exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                    style={{ overflow: 'hidden', borderRadius: DS.Radius.M }}
+                  >
+                     <div style={{ position: 'relative' }}>
+                       <img src={preview} alt="prev" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: DS.Radius.M }} />
+                       <button onClick={() => { setPreview(null); setFile(null); }} style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '50%', width: 24, height: 24 }}>✕</button>
+                     </div>
+                  </motion.div>
+               )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* Feed Stream */}
+        <div style={{ padding: '0 16px' }}>
+          {posts.map((post) => (
+            <PostCard key={post.id} post={post} currentUser={currentUser || undefined} />
+          ))}
+        </div>
+
+        <div style={{ height: '100px', display: 'flex', justifyContent: 'center', alignItems: 'center', opacity: 0.3 }}>
+           <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: DS.Color.Base.Content[3] }}></div>
+        </div>
+
+        {/* Easter Egg Overlay */}
+        <AnimatePresence>
+            {showEasterEgg && (
+                <>
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => { setShowEasterEgg(false); setShowConfetti(false); }}
+                        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9998, backdropFilter: 'blur(4px)' }}
+                    />
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.8, y: '-50%', x: '-50%' }}
+                        animate={{ opacity: 1, scale: 1, y: '-50%', x: '-50%' }}
+                        exit={{ opacity: 0, scale: 0.8, y: '-50%', x: '-50%' }}
+                        style={{
+                            position: 'fixed', top: '50%', left: '50%',
+                            zIndex: 9999,
+                            background: DS.Color.Base.Surface[2],
+                            padding: '32px',
+                            borderRadius: DS.Radius.L,
+                            border: `1px solid ${DS.Color.Accent.Surface}`,
+                            textAlign: 'center',
+                            width: '90%',
+                            maxWidth: '400px',
+                            boxShadow: `0 0 50px ${DS.Color.Accent.Surface}40`
+                        }}
+                    >
+                        <h2 style={{ 
+                            fontSize: '20px', 
+                            color: DS.Color.Base.Content[1], 
+                            marginBottom: '24px', 
+                            lineHeight: 1.5,
+                            fontFamily: DS.Type.Readable.Body.fontFamily 
+                        }}>
+                            যে বাল ছিড়তে পারবা না, সে বাল টানতে যাইও না
+                        </h2>
+                        <Button 
+                            variant="primary" 
+                            onClick={() => { setShowEasterEgg(false); setShowConfetti(false); }}
+                            style={{ width: '100%' }}
+                        >
+                            Okay
+                        </Button>
+                    </motion.div>
+                </>
+            )}
+        </AnimatePresence>
+        {showConfetti && <Confetti />}
+
+      </div>
+    </div>
+  );
+};
