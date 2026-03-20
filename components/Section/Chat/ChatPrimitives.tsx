@@ -62,13 +62,24 @@ export const ChatHeader: React.FC<{
 export const MessageBubble: React.FC<{
     msg: Message;
     isMe: boolean;
-    onImageClick: (url: string) => void;
+    onImageClick?: (url: string, type?: 'image' | 'video', layoutId?: string) => void;
     senderAvatar?: string;
 }> = ({ msg, isMe, onImageClick, senderAvatar }) => {
-    // Determine padding based on content type to ensure components fit flush if needed
     const p = msg.type === 'image' || msg.type === 'audio' ? '4px' : '12px 16px';
+    const [lightboxOpen, setLightboxOpen] = useState(false);
+    const [imgSize, setImgSize] = useState<{w: number, h: number} | null>(null);
 
     return (
+        <>
+        {msg.type === 'image' && msg.media_url && (
+            <Lightbox 
+                isOpen={lightboxOpen} 
+                src={msg.media_url} 
+                onClose={() => setLightboxOpen(false)} 
+                layoutId={`chat-media-${msg.id}`} 
+                imgSize={imgSize}
+            />
+        )}
         <motion.div 
           initial={{ opacity: 0, y: 10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -100,16 +111,27 @@ export const MessageBubble: React.FC<{
                 borderBottomRightRadius: isMe ? '4px' : theme.radius.lg,
                 borderBottomLeftRadius: isMe ? theme.radius.lg : '4px',
                 boxShadow: theme.shadow.card,
-                overflow: 'hidden'
+                overflow: 'hidden',
+                wordBreak: 'break-word',
+                boxSizing: 'border-box'
                 }}
             >
                 {msg.type === 'image' && msg.media_url ? (
                     <motion.img 
+                    layout
                     layoutId={`chat-media-${msg.id}`}
                     src={msg.media_url} 
                     alt="attachment" 
-                    onClick={() => onImageClick(msg.media_url || '')}
-                    style={{ width: '100%', maxWidth: '240px', borderRadius: theme.radius.md, display: 'block', cursor: 'pointer' }} 
+                    crossOrigin="anonymous"
+                    onClick={(e) => {
+                        const img = e.currentTarget;
+                        if (img.naturalWidth && img.naturalHeight) {
+                            setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+                        }
+                        setLightboxOpen(true);
+                        if (onImageClick) onImageClick(msg.media_url || '', 'image', `chat-media-${msg.id}`);
+                    }}
+                    style={{ width: 'auto', height: 'auto', maxWidth: '240px', borderRadius: theme.radius.md, display: 'block', cursor: 'pointer' }} 
                     />
                 ) : msg.type === 'audio' ? (
                     <AudioPlayer src={msg.media_url || ''} />
@@ -122,6 +144,7 @@ export const MessageBubble: React.FC<{
               {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </motion.div>
+        </>
     );
 };
 

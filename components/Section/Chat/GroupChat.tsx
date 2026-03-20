@@ -4,7 +4,6 @@ import { api, supabase, parseMessageContent } from '../../../services/supabaseCl
 import { Message, CurrentUser } from '../../../types';
 import { motion } from 'framer-motion';
 import { theme, commonStyles, DS } from '../../../Theme';
-import { Lightbox } from '../../Core/Lightbox';
 import { ChatHeader, ChatInput, MessageBubble } from './ChatPrimitives';
 
 import { useAuth } from '../../../contexts/AuthContext';
@@ -13,7 +12,6 @@ export const GroupChat: React.FC = () => {
     const { user: currentUser } = useAuth();
     const navigate = useNavigate();
     const [messages, setMessages] = useState<Message[]>([]);
-    const [lightbox, setLightbox] = useState<{ src: string | null, type: 'image' | 'video', layoutId?: string }>({ src: null, type: 'image' });
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -94,7 +92,6 @@ export const GroupChat: React.FC = () => {
 
     return (
         <>
-            {lightbox.src && <Lightbox isOpen={true} src={lightbox.src} type={lightbox.type} layoutId={lightbox.layoutId} onClose={() => setLightbox({ src: null, type: 'image' })} />}
             <motion.div 
               {...theme.motion.page}
               style={{ 
@@ -117,7 +114,6 @@ export const GroupChat: React.FC = () => {
                             key={msg.id} 
                             msg={msg} 
                             isMe={msg.sender_id === currentUser?.id} 
-                            onImageClick={(url, type, layoutId) => setLightbox({ src: url, type, layoutId })}
                         />
                     ))}
                     <div ref={messagesEndRef} style={{ height: '1px' }} />

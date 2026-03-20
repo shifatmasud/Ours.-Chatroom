@@ -4,7 +4,6 @@ import { api, supabase, parseMessageContent } from '../../../services/supabaseCl
 import { Message, CurrentUser } from '../../../types';
 import { motion } from 'framer-motion';
 import { theme, commonStyles } from '../../../Theme';
-import { Lightbox } from '../../Core/Lightbox';
 import { ChatHeader, ChatInput, MessageBubble } from './ChatPrimitives';
 
 import { useAuth } from '../../../contexts/AuthContext';
@@ -18,22 +17,7 @@ export const DirectChat: React.FC<DirectChatProps> = ({ friendId }) => {
     const navigate = useNavigate();
     const [messages, setMessages] = useState<Message[]>([]);
     const [friendProfile, setFriendProfile] = useState<any>(null);
-    const [lightboxOpen, setLightboxOpen] = useState(false);
-    const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-    const [lightboxLayoutId, setLightboxLayoutId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    const openLightbox = (url: string, id: string) => {
-        setLightboxSrc(url);
-        setLightboxLayoutId(`chat-media-${id}`);
-        setLightboxOpen(true);
-    };
-
-    const closeLightbox = () => {
-        setLightboxOpen(false);
-        setLightboxSrc(null);
-        setLightboxLayoutId(null);
-    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -133,7 +117,6 @@ export const DirectChat: React.FC<DirectChatProps> = ({ friendId }) => {
 
     return (
         <>
-            {lightboxSrc && <Lightbox isOpen={lightboxOpen} src={lightboxSrc} onClose={closeLightbox} layoutId={lightboxLayoutId || undefined} />}
             <div 
               style={{ 
                 height: '100dvh', 
@@ -157,7 +140,6 @@ export const DirectChat: React.FC<DirectChatProps> = ({ friendId }) => {
                             key={msg.id} 
                             msg={msg} 
                             isMe={msg.sender_id === currentUser?.id} 
-                            onImageClick={(url) => openLightbox(url, msg.id)}
                             senderAvatar={friendProfile?.avatar_url}
                         />
                     ))}
