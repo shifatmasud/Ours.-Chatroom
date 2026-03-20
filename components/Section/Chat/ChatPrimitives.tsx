@@ -2,7 +2,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { theme, commonStyles, DS } from '../../../Theme';
-import { CaretLeft, PhoneCall, PaperPlaneRight, Microphone, Image as ImageIcon, CircleNotch, Bell } from '@phosphor-icons/react';
+import { CaretLeft, PhoneCall, PaperPlaneRight, Microphone, Image as ImageIcon, CircleNotch } from '@phosphor-icons/react';
 import { Link } from 'react-router-dom';
 import { Message } from '../../../types';
 import { api } from '../../../services/supabaseClient';
@@ -36,24 +36,6 @@ export const ChatHeader: React.FC<{
                  {title}
              </motion.span>
           
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            style={{
-              background: theme.colors.surface3,
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              border: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: theme.colors.text1,
-              cursor: 'pointer'
-            }}
-          >
-            <Bell size={20} weight="fill" />
-          </motion.button>
-
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={onCall}
@@ -122,7 +104,8 @@ export const MessageBubble: React.FC<{
                 }}
             >
                 {msg.type === 'image' && msg.media_url ? (
-                    <img 
+                    <motion.img 
+                    layoutId={`chat-media-${msg.id}`}
                     src={msg.media_url} 
                     alt="attachment" 
                     onClick={() => onImageClick(msg.media_url || '')}
